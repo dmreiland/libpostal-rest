@@ -19,6 +19,31 @@ type Request struct {
 	Query string `json:"query"`
 }
 
+type BulkRequest struct {
+	Queries []struct {
+		QueryId string `json:"query_id"`
+		Query   string `json:"query"`
+	} `json:"queries"`
+}
+
+type BulkParseItem struct {
+	QueryId string                   `json:"query_id"`
+	Parsed  []parser.ParsedComponent `json:"parsed"`
+}
+
+type BulkParseResponse struct {
+	Items []BulkParseItem `json:"items"`
+}
+
+type BulkExpandItem struct {
+	QueryId    string   `json:"query_id"`
+	Expansions []string `json:"expansions"`
+}
+
+type BulkExpandResponse struct {
+	Items []BulkExpandItem `json:"items"`
+}
+
 func main() {
 	host := os.Getenv("LISTEN_HOST")
 	if host == "" {
@@ -37,6 +62,8 @@ func main() {
 	router.HandleFunc("/health", HealthHandler).Methods("GET")
 	router.HandleFunc("/expand", ExpandHandler).Methods("POST")
 	router.HandleFunc("/parser", ParserHandler).Methods("POST")
+	router.HandleFunc("/bulk/expand", BulkExpandHandler).Methods("POST")
+	router.HandleFunc("/bulk/parser", BulkParserHandler).Methods("POST")
 
 	s := &http.Server{Addr: listenSpec, Handler: router}
 	go func() {
@@ -78,6 +105,26 @@ func ExpandHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(expansionThing)
 }
 
+func BulkExpandHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req BulkRequest
+	var payload BulkExpandResponse
+
+	q, _ := ioutil.ReadAll(r.Body)
+	json.Unmarshal(q, &req)
+
+	for idx := range req.Queries {
+		var expandPayload BulkExpandItem
+		expandPayload.QueryId = req.Queries[idx].QueryId
+		expandPayload.Expansions = expand.ExpandAddress(req.Queries[idx].Query)
+		payload.Items = append(payload.Items, expandPayload)
+	}
+
+	expansionThing, _ := json.Marshal(payload)
+	w.Write(expansionThing)
+}
+
 func ParserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -88,5 +135,24 @@ func ParserHandler(w http.ResponseWriter, r *http.Request) {
 
 	parsed := parser.ParseAddress(req.Query)
 	parseThing, _ := json.Marshal(parsed)
+	w.Write(parseThing)
+}
+
+func BulkParserHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req BulkRequest
+	var payload BulkParseResponse
+
+	q, _ := ioutil.ReadAll(r.Body)
+	json.Unmarshal(q, &req)
+
+	for idx := range req.Queries {
+		var addressPayload BulkParseItem
+		addressPayload.QueryId = req.Queries[idx].QueryId
+		addressPayload.Parsed = parser.ParseAddress(req.Queries[idx].Query)
+		payload.Items = append(payload.Items, addressPayload)
+	}
+	parseThing, _ := json.Marshal(payload)
 	w.Write(parseThing)
 }
